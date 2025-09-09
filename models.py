@@ -270,11 +270,11 @@ def train_deep_averaging_network(args, train_exs: List[SentimentExample], dev_ex
     :param word_embeddings: set of loaded word embeddings
     :return: A trained NeuralSentimentClassifier model
     """
-    network  = nn.Sequential(nn.Linear(word_embeddings.get_embedding_length(), word_embeddings.get_embedding_length()//2),
+    print(word_embeddings.get_embedding_length())
+    network  = nn.Sequential(nn.Linear(word_embeddings.get_embedding_length(), word_embeddings.get_embedding_length()//15),
                               nn.ReLU(),
-                              nn.Linear(word_embeddings.get_embedding_length()//2, word_embeddings.get_embedding_length()//4),
-                              nn.ReLU(),
-                              nn.Linear(word_embeddings.get_embedding_length()//4, 2))
+                              nn.Linear(word_embeddings.get_embedding_length()//15, 2)
+                              )
 
     average_matrix = np.zeros((len(train_exs), word_embeddings.get_embedding_length()))
     labels = np.zeros(len(train_exs))
