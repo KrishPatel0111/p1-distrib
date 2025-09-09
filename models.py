@@ -171,7 +171,7 @@ def train_logistic_regression(train_exs: List[SentimentExample], feat_extractor:
     # Train logistic regression
     weight_vector=np.zeros(total_features)
     b=0.0
-    learning_rate = 0.1
+    learning_rate = 0.5
     for epoch in range(10000):  # number of epochs
         A = np.dot(X, weight_vector) + b
         y_pred = sigmoid(A)
@@ -233,7 +233,32 @@ class NeuralSentimentClassifier(SentimentClassifier):
     along with everything needed to run it on new data (word embeddings, etc.)
     """
     def __init__(self, network, word_embeddings):
-        raise NotImplementedError
+        self.network = network
+        self.word_embeddings = word_embeddings
+        
+    def predict(self, ex_words: List[str]) -> int:
+        total = np.zeros(self.word_embeddings.get_embedding_length())
+        for word in ex_words:
+            embedding = self.word_embeddings.get_embedding(word)
+            total += embedding
+        avg = total / len(ex_words)
+        logits = self.network(torch.FloatTensor(avg))
+        return 1 if torch.softmax(logits, dim=0).argmax(dim=0).item() > 0.5 else 0
+
+    def predict_proba(self, ex_words: List[str]) -> float:
+        """
+        Return the probability of the positive class
+        :param ex_words: words in the example to predict on
+        :return: a float between 0 and 1
+        """
+        total = np.zeros(self.word_embeddings.get_embedding_length())
+        for word in ex_words:
+            embedding = self.word_embeddings.get_embedding(word)
+            total += embedding
+        avg = total / len(ex_words)
+        logits = self.network(torch.FloatTensor(avg))
+        return torch.softmax(logits, dim=1)
+        
 
 
 def train_deep_averaging_network(args, train_exs: List[SentimentExample], dev_exs: List[SentimentExample], word_embeddings: WordEmbeddings) -> NeuralSentimentClassifier:
@@ -245,4 +270,42 @@ def train_deep_averaging_network(args, train_exs: List[SentimentExample], dev_ex
     :param word_embeddings: set of loaded word embeddings
     :return: A trained NeuralSentimentClassifier model
     """
-    raise NotImplementedError
+    network  = nn.Sequential(nn.Linear(word_embeddings.get_embedding_length(), word_embeddings.get_embedding_length()//2),
+                              nn.ReLU(),
+                              nn.Linear(word_embeddings.get_embedding_length()//2, word_embeddings.get_embedding_length()//4),
+                              nn.ReLU(),
+                              nn.Linear(word_embeddings.get_embedding_length()//4, 2))
+
+    average_matrix = np.zeros((len(train_exs), word_embeddings.get_embedding_length()))
+    labels = np.zeros(len(train_exs))
+    for i, ex in enumerate(train_exs):
+
+            total = np.zeros(word_embeddings.get_embedding_length())
+            for word in ex.words:
+                embedding = word_embeddings.get_embedding(word)
+                total += embedding
+            avg = total / len(ex.words)
+            average_matrix[i] = avg
+            labels[i] = ex.label
+
+            X = torch.from_numpy(average_matrix).float()           
+            y = torch.from_numpy(labels).long()
+            
+    for epoch in range(10000):
+        lr = 0.001
+        logits = network(X)
+        loss = nn.CrossEntropyLoss()
+        loss_calc = loss(logits, y)
+        #print(f"Epoch {epoch}, loss: {loss_calc.item()}")
+        optimizer = optim.Adam(network.parameters(), lr=lr)
+        
+            
+
+        # Backward pass
+        optimizer.zero_grad()
+        loss_calc.backward()
+        optimizer.step()
+
+    return NeuralSentimentClassifier(network, word_embeddings)
+
+    
