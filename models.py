@@ -84,7 +84,7 @@ class UnigramFeatureExtractor(FeatureExtractor):
         return normalized
 
     def extract_features(self, sentence: List[str], add_to_indexer: bool = False) -> Counter:
-        features = Counter(self.normalizer(sentence))  # simple bag of words
+        features = Counter(self.normalizer(sentence))  
         if add_to_indexer:
             for word in features:
                 self.indexer.add_and_get_index(word)
@@ -97,16 +97,58 @@ class BigramFeatureExtractor(FeatureExtractor):
     """
 
     def __init__(self, indexer: Indexer):
-        raise Exception("Must be implemented")
+        self.indexer = indexer
+        
+    def get_indexer(self):
+        return self.indexer
+    
+    def normalizer(self, sentence: List[str]) -> List[str]:
+        normalized = re.findall(r"[a-zA-Z0-9']+", ' '.join(sentence))
+        normalized = [word.lower() for word in normalized]
+        return normalized
+
+    def extract_features(self, sentence: List[str], add_to_indexer: bool = False) -> Counter:
+        tkns = self.normalizer(sentence)
+        i = 0
+        features = Counter()
+        while i < len(tkns) - 1:
+            bigram = tkns[i] + '__' + tkns[i + 1]
+            features[bigram] += 1
+            if add_to_indexer:
+                self.indexer.add_and_get_index(bigram)
+            i += 1
+        return features
 
 
 class BetterFeatureExtractor(FeatureExtractor):
     """
     Better feature extractor...try whatever you can think of!
     """
+    def __init__(self, indexer: Indexer, n: int = 3):
+        self.indexer = indexer
+        self.n = n
+        
+    def get_indexer(self):
+        return self.indexer
+    
+    def normalizer(self, sentence: List[str]) -> List[str]:
+        normalized = re.findall(r"[a-zA-Z0-9']+", ' '.join(sentence))
+        normalized = [word.lower() for word in normalized]
+        return normalized
 
-    def __init__(self, indexer: Indexer):
-        raise Exception("Must be implemented")
+    def extract_features(self, sentence: List[str], add_to_indexer: bool = False) -> Counter:
+        tkns = self.normalizer(sentence)
+        i = 0
+        features = Counter()
+        while i < len(tkns) - 1:
+            for j in range(1, self.n + 1):
+                n_gram = '__'.join(tkns[i:i + j])
+                features[n_gram] += 1
+                if add_to_indexer:
+                    self.indexer.add_and_get_index(n_gram)
+            i += 1
+        return features
+    
 
 
 class LogisticRegressionClassifier(SentimentClassifier):
