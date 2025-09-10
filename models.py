@@ -84,10 +84,13 @@ class UnigramFeatureExtractor(FeatureExtractor):
         return normalized
 
     def extract_features(self, sentence: List[str], add_to_indexer: bool = False) -> Counter:
-        features = Counter(self.normalizer(sentence))  
-        if add_to_indexer:
-            for word in features:
-                self.indexer.add_and_get_index(word)
+        features = Counter()  
+        tokens = self.normalizer(sentence)
+        for word in tokens:
+            index = self.indexer.add_and_get_index(word, add=add_to_indexer)
+            if index >= 0:
+                features[index] += 1
+        
         return features
 
 
@@ -108,23 +111,22 @@ class BigramFeatureExtractor(FeatureExtractor):
         return normalized
 
     def extract_features(self, sentence: List[str], add_to_indexer: bool = False) -> Counter:
-        tkns = self.normalizer(sentence)
-        i = 0
         features = Counter()
-        while i < len(tkns) - 1:
-            bigram = tkns[i] + '__' + tkns[i + 1]
-            features[bigram] += 1
-            if add_to_indexer:
-                self.indexer.add_and_get_index(bigram)
-            i += 1
+        for i in range(len(sentence) - 1):
+            bigram = f"Bigram={sentence[i]}__{sentence[i + 1]}"
+            print(bigram)
+            index = self.indexer.add_and_get_index(bigram, add=add_to_indexer)
+            if index >= 0:
+                features[index] += 1
         return features
+                
 
 
 class BetterFeatureExtractor(FeatureExtractor):
     """
     Better feature extractor...try whatever you can think of!
     """
-    def __init__(self, indexer: Indexer, n: int = 3):
+    def __init__(self, indexer: Indexer, n: int = 5):
         self.indexer = indexer
         self.n = n
         
@@ -140,12 +142,14 @@ class BetterFeatureExtractor(FeatureExtractor):
         tkns = self.normalizer(sentence)
         i = 0
         features = Counter()
+        
         while i < len(tkns) - 1:
             for j in range(1, self.n + 1):
                 n_gram = '__'.join(tkns[i:i + j])
-                features[n_gram] += 1
-                if add_to_indexer:
-                    self.indexer.add_and_get_index(n_gram)
+                titled_ngram = f"{self.n}_gram={n_gram}"
+                index = self.indexer.add_and_get_index(titled_ngram, add=add_to_indexer)
+                if index >= 0:
+                    features[index] += 1
             i += 1
         return features
     
@@ -164,14 +168,16 @@ class LogisticRegressionClassifier(SentimentClassifier):
 
     def predict(self, ex_words: List[str]) -> int:
         features = self.featurizer.extract_features(ex_words, add_to_indexer=False)
-        x = np.zeros((1, self.featurizer.get_indexer().__len__()))
-        for feat, count in features.items():
-            feat_index = self.featurizer.get_indexer().index_of(feat)
-            if feat_index >= 0:
-                x[0, feat_index] = count
+        z=0.0
+        for index, count in features.items():
+                
+                if index >= 0:
+                    z += self.weights[index] * count
 
-        y_pred = sigmoid(np.dot(x, self.weights) + self.bias)
-        return 1 if y_pred > 0.5 else 0
+        z += self.bias
+
+        y_prob = sigmoid(z)
+        return 1 if y_prob > 0.5 else 0
 
     def predict_proba(self, ex_words: List[str]) -> float:
         """
@@ -180,12 +186,16 @@ class LogisticRegressionClassifier(SentimentClassifier):
         :return: a float between 0 and 1
         """
         features = self.featurizer.extract_features(ex_words, add_to_indexer=False)
-        x = np.zeros((1, self.featurizer.get_indexer().__len__()))
-        for feat, count in features.items():
-            feat_index = self.featurizer.get_indexer().index_of(feat)
-            if feat_index >= 0:
-                x[0, feat_index] = count
-        return sigmoid(np.dot(x, self.weights) + self.bias)
+        z=0.0
+        for index, count in features.items():
+                
+                if index >= 0:
+                    z += self.weights[index] * count
+
+        z += self.bias
+
+        y_prob = sigmoid(z)
+        return y_prob
 
 
 def train_logistic_regression(train_exs: List[SentimentExample], feat_extractor: FeatureExtractor) -> LogisticRegressionClassifier:
@@ -196,48 +206,61 @@ def train_logistic_regression(train_exs: List[SentimentExample], feat_extractor:
     :return: trained LogisticRegressionClassifier model
     """
     # Extract features
-    X_counter = []
-    y = []
+    
     for ex in train_exs:
         features = feat_extractor.extract_features(ex.words, add_to_indexer=True)
-        X_counter.append(features)
-        y.append(ex.label)
+        
         
     total_features = feat_extractor.get_indexer().__len__()
-    X = np.zeros((len(train_exs), total_features))
-    for i, features in enumerate(X_counter):
-        for feat, count in features.items():
-            feat_index = feat_extractor.get_indexer().index_of(feat)
-            X[i, feat_index] = count
+            
 
     # Train logistic regression
+    
     weight_vector=np.zeros(total_features)
     b=0.0
-    learning_rate = 0.5
-    for epoch in range(10000):  # number of epochs
-        A = np.dot(X, weight_vector) + b
-        y_pred = sigmoid(A)
-        loss = entropy_loss(y, y_pred)
-    # Gradient descent step (you may want to implement mini-batch or full-batch gradient descent)
-        y = np.asarray(y, dtype=float)
-        grad_weight = np.dot(X.T, (y_pred - y)) / len(y)
-        grad_b = np.sum(y_pred - y) / len(y)
-        weight_vector -= learning_rate * grad_weight
-        b -= learning_rate * grad_b
-        if epoch % 1000 == 0:
-            learning_rate *= 0.9  # decay learning rate
+    learning_rate = 0.1
+    
+    for epoch in range(20):
+        total_loss=0# number of epochs
+        random.shuffle(train_exs)
         
-        
+            
+        for ex in train_exs:
+            features = feat_extractor.extract_features(ex.words, add_to_indexer=False)
 
+            #print(sentence_count.items())
+            # print(index_cache)]
+            z=0.0
+            for index, count in features.items():
+                
+                if index >= 0:
+                    z += weight_vector[index] * count
+                    
+            z += b
+
+            y_prob = sigmoid(z)
+            loss = entropy_loss(ex.label, y_prob)
+            total_loss += loss
+    # Gradient descent step (you may want to implement mini-batch or full-batch gradient descent)
+
+            error = y_prob - ex.label
+            
+            for index, count in features.items():
+                weight_vector[index] -= learning_rate*error * count
+            
+            
+            b -= learning_rate * error
+        print(f"Epoch {epoch}, loss: {total_loss/len(train_exs)}") 
+
+        learning_rate *= 0.9
+        
     return LogisticRegressionClassifier(weight_vector, b, feat_extractor)
 
 def sigmoid(z):
     return 1 / (1 + np.exp(-z))
 
 def entropy_loss(y_true, y_pred):
-    y_true = np.asarray(y_true, dtype=float)
-    y_pred = np.asarray(y_pred, dtype=float)
-    return -np.mean(y_true * np.log(y_pred) + (1 - y_true) * np.log(1 - y_pred))
+    return -(y_true * np.log(y_pred) + (1 - y_true) * np.log(1 - y_pred))
 
 
 def train_linear_model(args, train_exs: List[SentimentExample], dev_exs: List[SentimentExample]) -> SentimentClassifier:
@@ -340,10 +363,7 @@ def train_deep_averaging_network(args, train_exs: List[SentimentExample], dev_ex
         loss_calc = loss(logits, y)
         #print(f"Epoch {epoch}, loss: {loss_calc.item()}")
         optimizer = optim.Adam(network.parameters(), lr=lr)
-        
-            
 
-        # Backward pass
         optimizer.zero_grad()
         loss_calc.backward()
         optimizer.step()
