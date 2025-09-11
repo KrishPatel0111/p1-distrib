@@ -10,6 +10,7 @@ from sentiment_data import *
 from utils import *
 from collections import Counter
 import re
+import matplotlib.pyplot as plt
 
 
 class SentimentClassifier(object):
@@ -114,7 +115,6 @@ class BigramFeatureExtractor(FeatureExtractor):
         features = Counter()
         for i in range(len(sentence) - 1):
             bigram = f"Bigram={sentence[i]}__{sentence[i + 1]}"
-            print(bigram)
             index = self.indexer.add_and_get_index(bigram, add=add_to_indexer)
             if index >= 0:
                 features[index] += 1
@@ -126,7 +126,7 @@ class BetterFeatureExtractor(FeatureExtractor):
     """
     Better feature extractor...try whatever you can think of!
     """
-    def __init__(self, indexer: Indexer, n: int = 5):
+    def __init__(self, indexer: Indexer, n: int = 3):
         self.indexer = indexer
         self.n = n
         
@@ -197,7 +197,21 @@ class LogisticRegressionClassifier(SentimentClassifier):
         y_prob = sigmoid(z)
         return y_prob
 
-
+def plot_loss_curves(results, save_path="loss_plot_decay.png"):
+    #function to print loss curves
+    plt.figure(figsize=(8, 6))
+    for lr, losses in results.items():
+        plt.plot(range(1, len(losses) + 1), losses, label=f"lr={lr}")
+    
+    plt.xlabel("Epoch")
+    plt.ylabel("Loss")
+    plt.title("Training Loss vs Epochs for Different Learning Rates")
+    plt.legend()
+    plt.grid(True)
+    plt.savefig(save_path)   
+    plt.close()              
+    print(f"Plot saved to {save_path}")
+    
 def train_logistic_regression(train_exs: List[SentimentExample], feat_extractor: FeatureExtractor) -> LogisticRegressionClassifier:
     """
     Train a logistic regression model.
@@ -206,60 +220,76 @@ def train_logistic_regression(train_exs: List[SentimentExample], feat_extractor:
     :return: trained LogisticRegressionClassifier model
     """
     # Extract features
-    
     for ex in train_exs:
         features = feat_extractor.extract_features(ex.words, add_to_indexer=True)
         
-        
     total_features = feat_extractor.get_indexer().__len__()
-            
+    print(f"Total features: {total_features}")
 
-    # Train logistic regression
+    #initialize weights and parameters
     
-    weight_vector=np.zeros(total_features)
-    b=0.0
-    learning_rate = 0.1
-    
-    for epoch in range(20):
-        total_loss=0# number of epochs
-        random.shuffle(train_exs)
-        
-            
-        for ex in train_exs:
-            features = feat_extractor.extract_features(ex.words, add_to_indexer=False)
+    list_lr = [0.5, 0.1, 0.01, 0.001]
+    decay = True
+    default_lr = True
+    epochs = 20
+    lr_to_loss = {}
 
-            #print(sentence_count.items())
-            # print(index_cache)]
-            z=0.0
-            for index, count in features.items():
+    #trains the model over multiple epochs by introducing randomness
+    for lr in list_lr:
+        if default_lr:
+            learning_rate = 0.1
+        else:
+            learning_rate = lr
+        weight_vector=np.zeros(total_features)
+        b=0.0
+        loss_for_lr = []
+        for epoch in range(epochs):
+            total_loss=0
+            random.shuffle(train_exs)
+            for ex in train_exs:
+                features = feat_extractor.extract_features(ex.words, add_to_indexer=False)
+
+                #calculates z
+                z=0.0
+                for index, count in features.items():
+                    if index >= 0:
+                        z += weight_vector[index] * count
+                z += b
+
+                y_prob = sigmoid(z)
+                loss = entropy_loss(ex.label, y_prob)
                 
-                if index >= 0:
-                    z += weight_vector[index] * count
-                    
-            z += b
+                total_loss += loss
+        # Gradient descent step (you may want to implement mini-batch or full-batch gradient descent)
 
-            y_prob = sigmoid(z)
-            loss = entropy_loss(ex.label, y_prob)
-            total_loss += loss
-    # Gradient descent step (you may want to implement mini-batch or full-batch gradient descent)
+                error = y_prob - ex.label
+                
+                for index, count in features.items():
+                    weight_vector[index] -= learning_rate * error * count
 
-            error = y_prob - ex.label
-            
-            for index, count in features.items():
-                weight_vector[index] -= learning_rate*error * count
-            
-            
-            b -= learning_rate * error
-        print(f"Epoch {epoch}, loss: {total_loss/len(train_exs)}") 
+                b -= learning_rate * error
+            print(f"Epoch {epoch}, loss: {total_loss/len(train_exs)}") 
+            loss_for_lr.append((total_loss/len(train_exs)).item())
 
-        learning_rate *= 0.9
-        
+            if decay:
+                learning_rate = lr * (0.8 ** epoch)
+        if default_lr:
+            break
+        lr_to_loss[lr] = loss_for_lr
+
+    if not default_lr:
+        plot_loss_curves(lr_to_loss)
+    print("lr_to_loss:", lr_to_loss)
     return LogisticRegressionClassifier(weight_vector, b, feat_extractor)
+
+
 
 def sigmoid(z):
     return 1 / (1 + np.exp(-z))
 
 def entropy_loss(y_true, y_pred):
+    eps = 1e-15
+    y_pred = np.clip(y_pred, eps, 1 - eps)
     return -(y_true * np.log(y_pred) + (1 - y_true) * np.log(1 - y_pred))
 
 
@@ -308,7 +338,7 @@ class NeuralSentimentClassifier(SentimentClassifier):
             total += embedding
         avg = total / len(ex_words)
         logits = self.network(torch.FloatTensor(avg))
-        return 1 if torch.softmax(logits, dim=0).argmax(dim=0).item() > 0.5 else 0
+        return torch.softmax(logits, dim=0).argmax().item()
 
     def predict_proba(self, ex_words: List[str]) -> float:
         """
@@ -322,7 +352,8 @@ class NeuralSentimentClassifier(SentimentClassifier):
             total += embedding
         avg = total / len(ex_words)
         logits = self.network(torch.FloatTensor(avg))
-        return torch.softmax(logits, dim=1)
+        return torch.softmax(logits, dim=0)[1].item()
+
         
 
 
@@ -338,7 +369,9 @@ def train_deep_averaging_network(args, train_exs: List[SentimentExample], dev_ex
     print(word_embeddings.get_embedding_length())
     network  = nn.Sequential(nn.Linear(word_embeddings.get_embedding_length(), word_embeddings.get_embedding_length()//15),
                               nn.ReLU(),
-                              nn.Linear(word_embeddings.get_embedding_length()//15, 2)
+                              nn.Linear(word_embeddings.get_embedding_length()//15, word_embeddings.get_embedding_length()//25),
+                              nn.ReLU(),
+                              nn.Linear(word_embeddings.get_embedding_length()//25, 2)
                               )
 
     average_matrix = np.zeros((len(train_exs), word_embeddings.get_embedding_length()))
@@ -353,16 +386,19 @@ def train_deep_averaging_network(args, train_exs: List[SentimentExample], dev_ex
             average_matrix[i] = avg
             labels[i] = ex.label
 
-            X = torch.from_numpy(average_matrix).float()           
-            y = torch.from_numpy(labels).long()
-            
-    for epoch in range(10000):
-        lr = 0.001
+    X = torch.from_numpy(average_matrix).float()           
+    y = torch.from_numpy(labels).long()
+    lr = 0.01
+    network.train()
+    optimizer = optim.Adam(network.parameters(), lr=lr)
+    epochs = 100
+
+    for epoch in range(epochs):
         logits = network(X)
         loss = nn.CrossEntropyLoss()
         loss_calc = loss(logits, y)
         #print(f"Epoch {epoch}, loss: {loss_calc.item()}")
-        optimizer = optim.Adam(network.parameters(), lr=lr)
+        
 
         optimizer.zero_grad()
         loss_calc.backward()
