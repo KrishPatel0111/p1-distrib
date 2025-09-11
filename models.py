@@ -167,6 +167,7 @@ class LogisticRegressionClassifier(SentimentClassifier):
     superclass. Hint: you'll probably need this class to wrap both the weight vector and featurizer -- feel free to
     modify the constructor to pass these in.
     """
+    #a logistic regression classifier
     def __init__(self, weight_vector: np.ndarray, b: float = 0.0, featurizer: FeatureExtractor = FeatureExtractor()):
         self.weights = weight_vector  
         self.bias = b
