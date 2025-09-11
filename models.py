@@ -80,12 +80,14 @@ class UnigramFeatureExtractor(FeatureExtractor):
         return self.indexer
 
     def normalizer(self, sentence: List[str]) -> List[str]:
+        #normalizes the sentence by removing .,/,?, etc and converting to lowercase
         normalized = re.findall(r"[a-zA-Z0-9']+", ' '.join(sentence))
         normalized = [word.lower() for word in normalized]
         return normalized
 
     def extract_features(self, sentence: List[str], add_to_indexer: bool = False) -> Counter:
         features = Counter()  
+        #counts unigrams
         tokens = self.normalizer(sentence)
         for word in tokens:
             index = self.indexer.add_and_get_index(word, add=add_to_indexer)
@@ -107,11 +109,13 @@ class BigramFeatureExtractor(FeatureExtractor):
         return self.indexer
     
     def normalizer(self, sentence: List[str]) -> List[str]:
+        #normalizes the sentence by removing .,/,?, etc and converting to lowercase
         normalized = re.findall(r"[a-zA-Z0-9']+", ' '.join(sentence))
         normalized = [word.lower() for word in normalized]
         return normalized
 
     def extract_features(self, sentence: List[str], add_to_indexer: bool = False) -> Counter:
+        #bigrams
         features = Counter()
         for i in range(len(sentence) - 1):
             bigram = f"Bigram={sentence[i]}__{sentence[i + 1]}"
@@ -127,6 +131,7 @@ class BetterFeatureExtractor(FeatureExtractor):
     Better feature extractor...try whatever you can think of!
     """
     def __init__(self, indexer: Indexer, n: int = 3):
+        #n can be any n-gram
         self.indexer = indexer
         self.n = n
         
@@ -134,6 +139,7 @@ class BetterFeatureExtractor(FeatureExtractor):
         return self.indexer
     
     def normalizer(self, sentence: List[str]) -> List[str]:
+        #normalizes the sentence by removing .,/,?, etc and converting to lowercase
         normalized = re.findall(r"[a-zA-Z0-9']+", ' '.join(sentence))
         normalized = [word.lower() for word in normalized]
         return normalized
@@ -142,7 +148,7 @@ class BetterFeatureExtractor(FeatureExtractor):
         tkns = self.normalizer(sentence)
         i = 0
         features = Counter()
-        
+        #generates 1 to n grams
         while i < len(tkns) - 1:
             for j in range(1, self.n + 1):
                 n_gram = '__'.join(tkns[i:i + j])
@@ -162,7 +168,7 @@ class LogisticRegressionClassifier(SentimentClassifier):
     modify the constructor to pass these in.
     """
     def __init__(self, weight_vector: np.ndarray, b: float = 0.0, featurizer: FeatureExtractor = FeatureExtractor()):
-        self.weights = weight_vector  # numpy array
+        self.weights = weight_vector  
         self.bias = b
         self.featurizer = featurizer
 
@@ -170,10 +176,8 @@ class LogisticRegressionClassifier(SentimentClassifier):
         features = self.featurizer.extract_features(ex_words, add_to_indexer=False)
         z=0.0
         for index, count in features.items():
-                
                 if index >= 0:
                     z += self.weights[index] * count
-
         z += self.bias
 
         y_prob = sigmoid(z)
@@ -243,6 +247,7 @@ def train_logistic_regression(train_exs: List[SentimentExample], feat_extractor:
         weight_vector=np.zeros(total_features)
         b=0.0
         loss_for_lr = []
+        #loos over several epochs
         for epoch in range(epochs):
             total_loss=0
             random.shuffle(train_exs)
@@ -258,12 +263,10 @@ def train_logistic_regression(train_exs: List[SentimentExample], feat_extractor:
 
                 y_prob = sigmoid(z)
                 loss = entropy_loss(ex.label, y_prob)
-                
                 total_loss += loss
-        # Gradient descent step (you may want to implement mini-batch or full-batch gradient descent)
 
+                #calculates gradient and updates weights and bias
                 error = y_prob - ex.label
-                
                 for index, count in features.items():
                     weight_vector[index] -= learning_rate * error * count
 
@@ -274,10 +277,11 @@ def train_logistic_regression(train_exs: List[SentimentExample], feat_extractor:
             if decay:
                 learning_rate = lr * (0.8 ** epoch)
         if default_lr:
+            #breaks after one epoch loop
             break
         lr_to_loss[lr] = loss_for_lr
 
-    if not default_lr:
+    if not default_lr: #plots the graphs
         plot_loss_curves(lr_to_loss)
     print("lr_to_loss:", lr_to_loss)
     return LogisticRegressionClassifier(weight_vector, b, feat_extractor)
@@ -288,6 +292,7 @@ def sigmoid(z):
     return 1 / (1 + np.exp(-z))
 
 def entropy_loss(y_true, y_pred):
+    #add some value so no 0 in log func
     eps = 1e-15
     y_pred = np.clip(y_pred, eps, 1 - eps)
     return -(y_true * np.log(y_pred) + (1 - y_true) * np.log(1 - y_pred))
@@ -333,6 +338,7 @@ class NeuralSentimentClassifier(SentimentClassifier):
         
     def predict(self, ex_words: List[str]) -> int:
         total = np.zeros(self.word_embeddings.get_embedding_length())
+        #gets the average vector
         for word in ex_words:
             embedding = self.word_embeddings.get_embedding(word)
             total += embedding
@@ -347,6 +353,7 @@ class NeuralSentimentClassifier(SentimentClassifier):
         :return: a float between 0 and 1
         """
         total = np.zeros(self.word_embeddings.get_embedding_length())
+        #gets the average vector
         for word in ex_words:
             embedding = self.word_embeddings.get_embedding(word)
             total += embedding
@@ -367,6 +374,7 @@ def train_deep_averaging_network(args, train_exs: List[SentimentExample], dev_ex
     :return: A trained NeuralSentimentClassifier model
     """
     print(word_embeddings.get_embedding_length())
+    #define network layers
     network  = nn.Sequential(nn.Linear(word_embeddings.get_embedding_length(), word_embeddings.get_embedding_length()//15),
                               nn.ReLU(),
                               nn.Linear(word_embeddings.get_embedding_length()//15, word_embeddings.get_embedding_length()//25),
@@ -377,7 +385,7 @@ def train_deep_averaging_network(args, train_exs: List[SentimentExample], dev_ex
     average_matrix = np.zeros((len(train_exs), word_embeddings.get_embedding_length()))
     labels = np.zeros(len(train_exs))
     for i, ex in enumerate(train_exs):
-
+            #create a average vector in average matrix for each data point
             total = np.zeros(word_embeddings.get_embedding_length())
             for word in ex.words:
                 embedding = word_embeddings.get_embedding(word)
@@ -393,6 +401,7 @@ def train_deep_averaging_network(args, train_exs: List[SentimentExample], dev_ex
     optimizer = optim.Adam(network.parameters(), lr=lr)
     epochs = 100
 
+    #trains using backpropagation
     for epoch in range(epochs):
         logits = network(X)
         loss = nn.CrossEntropyLoss()
